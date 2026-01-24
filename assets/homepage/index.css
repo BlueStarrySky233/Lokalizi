@@ -1,0 +1,128 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Lexend', system-ui, -apple-system, sans-serif;
+}
+
+body {
+    background-image: url("./background.jpg");
+    box-shadow: inset 0 0 0 1000px rgba(10, 14, 23, .7);
+    background-size: cover;
+    color: white;
+    height: 100vh;
+    overflow: hidden;
+    position: relative;
+}
+
+#scene-container {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+}
+
+#img-credit {
+    bottom: 0;
+    right: 0;
+    margin: 5px;
+    position: absolute;
+}
+
+a {
+    color: aqua;
+    text-decoration: none;
+}
+
+#logo {
+    margin: 10px;
+    z-index: 10;
+    height: 70%;
+}
+
+#logo img {
+    height: 100%;
+}
+
+#topbar {
+    width: 100%;
+    height: 80px;
+    top: 0;
+    background-color: rgba(30, 41, 59, .75);
+    backdrop-filter: blur(20px);
+    position: absolute;
+    display: flex;
+    align-items: center;
+}
+
+#playBtn {
+    height: 60px;
+    font-size: xx-large;
+    width: 500px;
+    border-radius: 30px;
+    border: none;
+    background: linear-gradient(#365996, #1a386a);
+    color: white;
+    font-weight: bold;
+    margin: 10px;
+    transition: .2s ease-in-out;
+    box-shadow: 0 0.275rem 1.125rem rgb(0 0 0/25%),inset 0 0.0625rem 0 #ffffff53,inset 0 -0.125rem 0 rgb(0 0 0/30%);
+}
+
+#playBtn:hover {
+    box-shadow: 0 0 20px rgba(59,130,246,0.7);
+    scale: 1.05;
+}
+
+#btnGroup {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    bottom: 50px;
+    right: 50px;
+    width: 500px;
+    height: 140px;
+}
+
+
+#changelog {
+    width: 100%;
+    height: 100%;
+    z-index: 99999;
+    position: absolute;
+    padding: 10vh 30vw;
+    display: none;
+}
+
+#changelog #background {
+    background-color: rgba(10, 14, 23, .7);
+    width: 100%;
+    height: 100%;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+}
+
+#changelog #background h1 {
+    margin: 20px;
+}
+
+#changelog #background #content {
+    overflow: auto;
+    margin: 20px;
+    font-size: large;
+}
+
+#changelog #background #closeBtn {
+    position: relative;
+    right: 0px;
+    top: 0px;
+    margin: 20px;
+    width: 40px;
+    height: 40px;
+    font-size: x-large;
+    background-color: transparent;
+    border: none;
+    color: white;
+    cursor: pointer;
+}
+

@@ -1,0 +1,781 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lokalizi Singleplayer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
+    <link href="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.loli.net">
+    <link rel="preconnect" href="https://gstatic.loli.net" crossorigin="">
+    <link href="https://fonts.loli.net/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet">
+    <script type="text/javascript" async src='https://api.mapy.cz/js/panorama/v1/panorama.js'></script>
+    <script src="./assets/game/streetviewvn.umd.js"></script>
+    <link rel="stylesheet" href="https://streetview.vn/sdk/style.css" type="text/css" />
+    <link rel="icon" href="./assets/icon.png">
+
+    <link rel="stylesheet" href="./assets/game/game.css">
+</head>
+
+<body>
+    <div id="countdownOverlay" style="display: none;z-index: 999999;">
+        <div id="countdownText">5</div>
+    </div>
+
+    <div id="timerContainer">
+        <div id="timerCover"></div>
+        <div
+            style="width: 100%; height: 100%; background: conic-gradient(#f87171 calc(var(--progress) * 1deg), black calc(var(--progress) * 1deg) 360deg); position: absolute; border-radius: 25px;">
+        </div>
+        <div id="timerDisplay" style="z-index: 10;">01:30</div>
+    </div>
+
+    <div id="logo">
+        <img src="./assets/icon_big.png">
+    </div>
+
+    <div id="panorama"></div>
+    <div id="mapComponent">
+        <div id="map"></div>
+        <button id="guessBtn" onclick="Guess()">Guess</button>
+        <div id="scoreBar" style="display: none;justify-content: space-around;">
+            <div style="display: flex; flex-direction: column;height: 100px;">
+                <h1 style="margin: 0;font-size: 50px;color: yellow;transform: translateY(10px);text-align: center;width: 300px;"
+                    id="score-label"></h1>
+                <p style="transform: translateY(-10px);width: 300px;text-align: center;color: gray;">Out of 5000</p>
+            </div>
+            <button
+                style="width: 100px;height: 40px;margin: 5px;border-radius: 20px;border: none;background-color: #22a118;color: white;font-weight: bold;"
+                onclick="NextRound()">Next</button>
+            <div style="display: flex; flex-direction: column;height: 100px;justify-content: center;">
+                <h1 style="margin: 0;font-size: 50px;color: greenyellow;text-align: center;width: 300px;justify-content: center;"
+                    id="distance-label"></h1>
+            </div>
+        </div>
+    </div>
+
+    <div class="horizontal-compass">
+        <div class="compass-tape" id="compassTape">
+            N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||N|||||NE|||||E|||||SE|||||S|||||SW|||||W|||||NW|||||
+        </div>
+        <div class="center-indicator">|</div>
+    </div>
+
+    <div class="loading-indicator">
+        <span class="loader-circle"></span>
+        <span class="loader"></span>
+        <div class="tips">
+            <h1 class="tips-title">Loading</h1>
+        </div>
+    </div>
+
+    <audio id="bgm" loop preload="auto" playsinline autoplay volume="0.35">
+        <source src="./assets/dawn.mp3" type="audio/mpeg">
+        <!-- Dawn by Sappheiros -->
+    </audio>
+
+    <script>
+        const bgm = document.getElementById('bgm');
+
+        // Start on first user interaction (browsers block autoplay)
+        let started = false;
+        document.addEventListener("DOMContentLoaded", () => {
+            bgm.volume = 0.35
+        })
+
+        document.addEventListener("click", () => {
+            if (!started) {
+                bgm.play().catch(e => console.log("Audio play failed:", e));
+                started = true;
+            }
+        }, { once: false }); // allow multiple clicks to restart if needed
+    </script>
+
+    <script>
+
+        let moving = true // default fallback
+
+        // Read from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('moving')) {
+            moving = urlParams.get('moving') == 1;
+        }
+
+        const { Viewer } = mapillary;
+        const { Photo } = StreetViewVN_Viewer;
+        const { PhotoAdapter } = StreetViewVN_Viewer.adapter;
+        const { VirtualTourPlugin } = StreetViewVN_Viewer.plugins;
+
+        Viewer.prototype.getPosition = () => {
+            return null;
+        }
+
+        var map = L.map('map', {
+            "worldCopyJump": true
+        }).setView([0, 0], 1);
+
+        var currentImg = Math.floor(Math.random() * 10016);
+        var destIcon = L.icon({
+            iconUrl: './assets/game/icon_dest.png',
+            iconSize: L.Icon.Default.prototype.options.iconSize,
+            iconAnchor: L.Icon.Default.prototype.options.iconAnchor,
+            shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png"
+        });
+        var marker = L.marker([0, 0]).addTo(map);;
+        marker.setOpacity(0);
+        var destMarker;
+        var destination = [0, 0];
+        var chosenToDestPath;
+
+        var mapLocked = false;
+        var distanceBetween = 0;
+        var viewer = null;
+        var mapyViewer = null;
+        var openMapViewer = null;
+        var panoImg;
+
+        var cachedPics = [];
+        var usedIds = [];
+        var usedCoords = [];
+
+        var distanceDelta = 20;
+
+        const accessToken = `MLY|24933137993027931|674358cf576494c7adf0bc0dcce27636`
+        var availablePics = [];
+
+        var progressThread;
+        var countdownThread;
+        const timerDisplay = document.getElementById("timerDisplay");
+
+        var totalTime = 90;
+        let timeLeft = totalTime;
+        let timerAlarmThreshold = 15;
+        var timerStarted = false;
+
+
+        UpdateHorizontalCompass(0);
+        InitPanorama();
+        SetGuessBtnActivation(marker != null && marker.options.opacity == 1.0)
+
+
+
+        var currentProgress = 360;
+
+        function StartTimer(callback) {
+            ResetTimer();
+            const minutes = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+            const seconds = String(timeLeft % 60).padStart(2, "0");
+            timerDisplay.textContent = `${minutes}:${seconds}`;
+            timerStarted = true;
+            progressThread = setInterval(() => {
+                if (currentProgress <= 0) {
+                    callback();
+                    ResetTimer();
+                    clearInterval(progressThread);
+                }
+                currentProgress -= 1;
+                document.documentElement.style.setProperty(
+                    "--progress",
+                    currentProgress
+                );
+            }, 1000 / (360 / totalTime));
+
+            countdownThread = setInterval(() => {
+                timeLeft--;
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownThread);
+                    timerDisplay.textContent = "00:00";
+                    return;
+                }
+
+                if (timeLeft <= 15) {
+                    timerDisplay.style.color = "red"
+                }
+
+                currentProgress = 360 * timeLeft / totalTime
+                document.documentElement.style.setProperty(
+                    "--progress",
+                    currentProgress
+                );
+
+                const minutes = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+                const seconds = String(timeLeft % 60).padStart(2, "0");
+                timerDisplay.textContent = `${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        function ResetTimer() {
+            currentProgress = 360;
+            timeLeft = totalTime;
+            clearInterval(countdownThread);
+            clearInterval(progressThread);
+            timerStarted = false;
+            timerDisplay.style.color = "white"
+        }
+
+        async function GetRandomCoord(country) {
+            var coord = []
+            await fetch(`https://zaofanyouli.tach.eu.org/?${country}`)
+                .then(async res => {
+                    var json = await res.json();
+                    coord = [json.nearest.latt, json.nearest.longt]
+                })
+            return coord;
+        }
+
+        function randomDate(start, end) {
+            return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+        }
+
+        function SetGuessBtnActivation(active) {
+            document.getElementById("guessBtn").textContent = active ? "Guess" : "Place a Pin on the map"
+
+            if (active)
+                document.getElementById("guessBtn").removeAttribute("disabled")
+            else
+                document.getElementById("guessBtn").setAttribute("disabled", "")
+
+        }
+
+        var panoramaUsing = -1;
+
+        async function InitPanorama() {
+            var isValid = true;
+
+
+            try {
+                document.getElementById("panorama").childNodes.forEach(el => {
+                    el.remove()
+                })
+
+
+                switch (panoramaUsing) {
+                    case 0:
+                        if (viewer != null)
+                            viewer.remove();
+                        viewer = null
+                        break;
+                    case 1:
+                        if (mapyViewer != null)
+                            mapyViewer.destroy();
+                        mapyViewer = null
+                        break;
+                    case 2:
+                        if (openMapViewer != null)
+                            openMapViewer.destroy();
+                        openMapViewer = null
+                        break;
+
+                }
+            }
+            catch (ex) {
+                console.log(ex)
+            }
+
+
+            var randomPercentage = RandomRange(1, 100)
+            // 1-84 85% Mapillary
+            // 85-92 7% OpenMap.vn
+            // 93-100 8% Mapy
+
+            if (randomPercentage >= 92) {
+                try {
+
+                    panoramaUsing = 1
+                    const container = document.querySelector("#panorama");
+                    var coord = await GetRandomCoord("CZ");
+                    mapyViewer = await Panorama.panoramaFromPosition({
+                        parent: container,
+                        // WGS84 lon/lat
+                        lon: coord[1],
+                        lat: coord[0],
+                        // api key
+                        apiKey: "uEjLrCwPR9uyYtaP9QurJwdPk74epqINOs0FH7FMYgc",
+                        radius: 2000,
+                        // show navigation - pano neighbors, click mask
+                        showNavigation: moving,
+                    });
+                    destination = [mapyViewer.info.lat, mapyViewer.info.lon]
+                    mapyViewer.addListener("pano-view", viewData => UpdateHorizontalCompass(viewData.yaw * (180 / Math.PI)));
+                    document.querySelector(".loading-indicator").style.display = 'none';
+                    if (!mapLocked)
+                        StartTimer(() => { Guess(true) });
+                }
+                catch (ex) {
+                    console.log(ex)
+                    InitPanorama()
+                    return;
+                }
+            }
+            else if (randomPercentage >= 85) {
+                panoramaUsing = 2
+                const container = document.querySelector("#panorama");
+                openMapViewer = new Photo({
+                    apiKey: "GLQCniEvYTGsIkaBsPQxZgeAAY9iWGSK",
+                    lang: {
+                        "zoom": "Zoom",
+                        "zoomOut": "Zoom Out",
+                        "zoomIn": "Zoom In",
+                        "moveUp": "Move Up",
+                        "moveDown": "Move Down",
+                        "moveLeft": "Move Left",
+                        "moveRight": "Move Right",
+                        "description": "Description",
+                        "download": "Download",
+                        "fullscreen": "Fullscreen",
+                        "loading": "Loading",
+                        "menu": "Menu",
+                        "close": "Close",
+                        "twoFingers": "Use 2 fingers to navigate",
+                        "ctrlZoom": "Use Ctrl + scroll to zoom in and out",
+                        "loadError": "Load error",
+                        "hintWheel": "Drag or swipe left - right - up - down to view 360 images",
+                        "webglError": "Your browser does not support WebGL"
+                    },
+                    container,
+                    navbar: false,
+                    panorama: null,
+                    loadingImg: null,
+                    adapter: [
+                        PhotoAdapter,
+                        {
+                            showErrorTile: false,
+                            baseBlur: false,
+                            resolution: 64,
+                            shouldGoFast: () => false,
+                        },
+                    ],
+                    defaultZoomLvl: 0,
+                    defaultYaw: 0,
+                    defaultPitch: 0,
+                    plugins: [
+                        [
+                            VirtualTourPlugin,
+                            {
+                                arrowEnabled: moving,
+                                onLoadNode: (node) => {
+                                    // This fires when the current panorama/node loads
+                                    if (node.gps) {
+                                        const [lng, lat] = node.gps;  // gps is [lat, lng, ?altitude]
+                                        destination = [lat, lng]
+
+                                    } else {
+                                        isValid = false;
+                                        return;
+                                    }
+                                }
+                            },
+                        ],
+                    ],
+                });
+                if (!isValid) {
+                    InitPanorama();
+                    return;
+                }
+
+                var coord = await GetRandomCoord("VN");
+                openMapViewer
+                    .getPlugin(VirtualTourPlugin)
+                    .setCurrentLatLng({ lng: coord[1], lat: coord[0] }, true);
+
+                openMapViewer.addEventListener("ready", () => {
+                    document.querySelector(".loading-indicator").style.display = 'none';
+                    if (!mapLocked)
+                        StartTimer(() => { Guess(true) });
+                })
+
+                openMapViewer.addEventListener("position-updated", () => {
+                    UpdateHorizontalCompass(openMapViewer.getPosition().yaw * (180 / Math.PI));
+                })
+            }
+            else {
+                panoramaUsing = 0
+                var startDate = randomDate(new Date(2013, 8, 1), new Date(2016, 11, 31)).toISOString();
+                var endDate = randomDate(new Date(2017, 0, 1), new Date()).toISOString();
+
+                try {
+                    await fetch(`https://graph.mapillary.com/images?fields=id,thumb_original_url,geometry,camera_type,captured_at,is_pano&start_captured_at=${startDate}&end_captured_at=${endDate}&limit=${RandomRange(100, 500)}&access_token=${accessToken}`)
+                        .then(async (res) => {
+                            if (res.status != 200) {
+                                isValid = false;
+                                return;
+                            }
+
+                            var json = await res.json();
+
+                            json.data.forEach(el => {
+                                if (el["is_pano"]) {
+                                    availablePics.push(el);
+                                }
+                            })
+
+                            var count = availablePics.length;
+
+                            if (count == 0) {
+                                isValid = false
+                                return;
+                            }
+
+
+                        })
+                }
+                catch (ex) {
+                    isValid = false;
+                    console.log(`[ERROR] Load panoramas error: ${ex}`);
+                }
+
+                if (!isValid) {
+                    InitPanorama();
+                    return;
+                }
+
+
+
+
+                cachedPics = await PickPictures(1, availablePics);
+                LoadScene(0);
+            }
+
+        }
+
+        function LoadScene(index) {
+            var img = cachedPics[index]
+            panoImg = img.img;
+            destination = img.coord;
+            currentImg = img.id;
+            viewer = new Viewer({
+                accessToken: accessToken,
+                container: 'panorama', // the ID of our container defined in the HTML body
+                imageId: currentImg,
+                component: { cover: false },
+            });
+            viewer.on('pov', async () => {
+                const bearing = await viewer.getBearing() || 0;
+                UpdateHorizontalCompass(bearing);
+            });
+            viewer.on("load", () => {
+                document.querySelector(".loading-indicator").style.display = 'none';
+                document.querySelector(".mapillary-direction-perspective").style.display = moving ? "block" : "none"
+                if (!mapLocked)
+                    StartTimer(() => { Guess(true) });
+            })
+            viewer.setFilter(['==', 'cameraType', 'spherical']);
+            cachedPics.splice(0, 1)
+            usedIds.push(currentImg);
+            usedCoords.push(destination);
+        }
+
+
+        function RandomRange(min, max) {
+            min = Math.ceil(min);
+            max = Math.floor(max);
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function UpdateHorizontalCompass(bearing) {
+            const tape = document.getElementById('compassTape');
+            if (!tape) return;
+
+            const normalized = bearing;
+
+            // pxPerDegree was ~1.156 — tune this value so N is perfectly centered at bearing=0
+            const pxPerDegree = -2.12222;          // ← adjust this (try 1.1 to 1.3)
+            const offsetPx = normalized * pxPerDegree - 1532;
+
+            const initialOffset = -700;
+
+            tape.style.transform = `translateX(${offsetPx + initialOffset}px)`;
+        }
+
+        async function GetSpatialNeighborsMapillary(imageId, radiusMeters = 20) {
+            // Step 1: Get current image position
+            const imgUrl = `https://graph.mapillary.com/${imageId}?` +
+                `access_token=${accessToken}&fields=geometry`;
+
+            const imgRes = await fetch(imgUrl);
+            const imgData = await imgRes.json();
+            const [lng, lat] = imgData.geometry.coordinates;
+
+            // Step 2: Approximate bbox for small radius (~20m)
+            const delta = radiusMeters / 111000;  // rough degrees conversion
+            const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`;
+
+            const nearbyUrl = `https://graph.mapillary.com/images?` +
+                `access_token=${accessToken}&` +
+                `bbox=${bbox}&` +
+                `is_pano=true&` +          // optional: only panoramas
+                `fields=id,geometry,captured_at&` +
+                `limit=50`;                // increase if needed
+
+            const nearbyRes = await fetch(nearbyUrl);
+            const nearbyData = await nearbyRes.json();
+
+            const neighbors = (nearbyData.data || [])
+                .filter(img => img.id !== imageId)  // exclude self
+                .map(img => ({
+                    id: img.id,
+                    lat: img.geometry.coordinates[1],
+                    lng: img.geometry.coordinates[0],
+                    distance: GetDistanceFromLatLonInKm(lat, lng, img.geometry.coordinates[1], img.geometry.coordinates[0]) / 1000
+                }))
+                .sort((a, b) => a.distance - b.distance);
+
+            return {
+                hasNeighbors: neighbors.length > 0,
+                neighbors: neighbors.slice(0, 8)  // e.g. top 8 closest
+            };
+        }
+
+
+        async function PickPictures(count, data) {
+            var res = [];
+            var items = data.slice();
+            var shouldContinue = false;
+
+            for (var i = 0; i < count; i++) {
+                if (items.length == 0) {
+                    InitPanorama();
+                    viewer.remove();
+                    return;
+                }
+
+                shouldContinue = false;
+                var index = RandomRange(0, items.length - 1);
+                var id = items[index].id;
+                var img = items[index].thumb_original_url;
+                if (usedIds.includes(id) || (moving && !(await GetSpatialNeighborsMapillary(id)).hasNeighbors)) {
+                    items.splice(index, 1)
+                    i--;
+                    continue;
+                }
+
+                var coord =
+                    [
+                        items[index].geometry.coordinates[1],
+                        items[index].geometry.coordinates[0]
+                    ];
+
+                usedCoords.forEach(el => {
+                    var dist = GetDistanceFromLatLonInKm(coord[0], coord[1], el[0], el[1]);
+                    if (dist <= distanceDelta) {
+                        console.log("Dropping the panorama as its distance between one of the used coords is " + dist + "km")
+                        items.splice(index, 1)
+                        i--;
+                        shouldContinue = true
+                    }
+                })
+
+                if (shouldContinue)
+                    continue;
+
+                res.push({
+                    "id": id,
+                    "img": `https://zaofanyouli.tach.eu.org/${img}`,
+                    "coord": coord,
+                })
+                items.splice(index, 1);
+            }
+
+            return res;
+        }
+
+
+        function onMapClick(e) {
+            if (mapLocked) return;
+            if (marker != null)
+                marker.remove();
+            marker = L.marker(e.latlng).addTo(map);
+            marker.setOpacity(1)
+            SetGuessBtnActivation(marker != null && marker.options.opacity == 1.0)
+        }
+        map.on('click', onMapClick);
+
+        L.tileLayer('https://tile.tracestrack.com/auto/{z}/{x}/{y}.webp?key=d2005e4e94ea8953507355ae4c83ba1c', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.tracestrack.com/">Tracestrack</a>'
+        }).addTo(map);
+
+
+        function Guess(ignorePrerequisites = false) {
+            if (!ignorePrerequisites && (marker == null || marker.options.opacity != 1.0)) return;
+            var chosenCoord = marker.getLatLng()
+            marker.setOpacity(1);
+
+            destMarker = L.marker(destination, { icon: destIcon }).addTo(map);
+            chosenToDestPath = L.polyline([destMarker.getLatLng(), chosenCoord],
+                {
+                    color: '#333',
+                    weight: 1,
+                    opacity: 0.6,
+                }).addTo(map);
+
+            mapLocked = true;
+            document.documentElement.style.setProperty("--mapWidth", "100vw");
+            document.documentElement.style.setProperty("--mapHeight", "100vh");
+            document.documentElement.style.setProperty("--mapGap", "100px");
+            SetGuessBtnActivation(marker != null && marker.options.opacity == 1.0)
+            map.invalidateSize()
+            console.log(chosenCoord)
+            distanceBetween = GetDistanceFromLatLonInKm(destination[0], destination[1],
+                chosenCoord.lat, chosenCoord.lng);
+
+            map.fitBounds(
+                L.latLngBounds(chosenCoord, destination),
+                {
+                    padding: [100, 100],  // Extra space around points (top/bottom/left/right in pixels)
+                    maxZoom: 18,          // Prevent zooming too close (street level)
+                    animate: true,        // Smooth zoom animation
+                    duration: 1         // Animation time in seconds
+                }
+            );
+
+            var score = CalculateRoundScore(distanceBetween);
+
+            console.log(`${distanceBetween.toFixed(2).toString()}km, with score ${score}`)
+
+            document.getElementById("guessBtn").style.display = 'none';
+            document.querySelector(".horizontal-compass").style.display = 'none';
+            document.getElementById("mapComponent").style.zIndex = 99999;
+            document.querySelector(".loading-indicator").style.display = 'flex';
+            document.getElementById("scoreBar").style.display = "flex";
+
+            document.getElementById("score-label").textContent = score
+            document.getElementById("distance-label").textContent = `${distanceBetween.toFixed(0).toString()}km`;
+
+            ResetTimer();
+
+            InitPanorama()
+            /*setTimeout(() => {
+                startCountdown(5);
+            }, 5000)
+
+            setTimeout(() => {
+                NextRound();
+            }, 10000);*/
+        }
+
+
+
+        function NextRound() {
+            if (countdownActive) {
+                clearInterval(countdownTimer);
+                countdownActive = false;
+                document.getElementById('countdownOverlay').style.display = 'none';
+            }
+
+
+            chosenToDestPath.remove();
+            destMarker.remove();
+            marker.remove();
+            marker = L.marker([0, 0]).addTo(map);
+            marker.setOpacity(0);
+            document.getElementById("guessBtn").style.display = 'block';
+            document.getElementById("mapComponent").style.zIndex = 999;
+            mapLocked = false;
+            document.documentElement.style.setProperty("--mapWidth", "35vw");
+            document.documentElement.style.setProperty("--mapHeight", "40vh");
+            document.documentElement.style.setProperty("--mapGap", "50px");
+            document.querySelector(".horizontal-compass").style.display = 'block';
+            document.getElementById("scoreBar").style.display = "none";
+            map.invalidateSize()
+            map.setView([0, 0], 1);
+            if (!timerStarted)
+                StartTimer(() => { Guess(true) });
+        }
+
+        function CalculateRoundScore(distance, scoreFactor = 14916.862) {
+            if (distance * 1000 < 25) return 5000;
+
+            const score = 5000 * Math.pow(Math.E, (-10 * distance / scoreFactor))
+
+            if (score < 0) return 0;
+
+            return Math.round(score);
+        }
+
+        function GetDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+            var R = 6371; // Radius of the earth in km
+            var dLat = deg2rad(lat2 - lat1);  // deg2rad below
+            var dLon = deg2rad(lon2 - lon1);
+            var a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                ;
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            var d = R * c; // Distance in km
+            return d;
+        }
+
+        function deg2rad(deg) {
+            return deg * (Math.PI / 180)
+        }
+
+
+        // Add to your global variables (near top with other vars)
+        var countdownActive = false;
+        var countdownTimer;
+
+        // Countdown function (GeoGuessr style)
+        function startCountdown(seconds = 5) {
+            if (countdownActive) return;  // Prevent multiple timers
+
+            countdownActive = true;
+            const overlay = document.getElementById('countdownOverlay');
+            const text = document.getElementById('countdownText');
+
+            overlay.style.display = 'block';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.width = '100vw';
+            overlay.style.height = '100vh';
+            overlay.style.zIndex = '999999';
+
+            let timeLeft = seconds;
+
+            function updateDisplay() {
+                text.textContent = timeLeft;
+
+                // Pulse animation (GeoGuessr-like)
+                text.style.transform = `translate(-50%, -50%) scale(1)`;
+                text.style.transition = 'all 0.3s ease';
+
+                setTimeout(() => {
+                    text.style.transform = `translate(-50%, -50%) scale(1.1)`;
+                }, 50);
+            }
+
+            updateDisplay();
+
+            countdownTimer = setInterval(() => {
+                timeLeft--;
+                updateDisplay();
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownTimer);
+                    countdownActive = false;
+
+                    // Fade out overlay
+                    overlay.style.transition = 'opacity 0.5s ease';
+                    overlay.style.opacity = '0';
+
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                        overlay.style.opacity = '1';
+                    }, 500);
+                }
+            }, 1000);
+        }
+
+    </script>
+
+</body>
+
+</html>
