@@ -19,6 +19,13 @@
     <link rel="stylesheet" href="https://streetview.vn/sdk/style.css" type="text/css" />
     <link rel="icon" href="./assets/icon.png">
 
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.jsdelivr.net/npm/@panoramax/web-viewer@4.1.0/build/index.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@panoramax/web-viewer@4.1.0/build/index.js"></script>
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.jsdelivr.net/npm/@panoramax/web-viewer/build/photoviewer.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@panoramax/web-viewer/build/photoviewer.js"></script>
+
     <link rel="stylesheet" href="./assets/game/game.css">
 </head>
 
@@ -40,6 +47,8 @@
     </div>
 
     <div id="panorama"></div>
+    <pnx-photo-viewer widgets="false" style="z-index: -1;position: absolute;top:0;left:0;width: 100vw;height: 100vh;"
+        no-history></pnx-photo-viewer>
     <div id="mapComponent">
         <div id="map"></div>
         <button id="guessBtn" onclick="Guess()">Guess</button>
@@ -105,6 +114,23 @@
         if (urlParams.has('moving')) {
             moving = urlParams.get('moving') == 1;
         }
+        if (moving) {
+            document.documentElement.style.setProperty("--moving", "block");
+        }
+        else {
+            document.documentElement.style.setProperty("--moving", "none");
+        }
+
+        const originalPushState = history.pushState;
+
+        // Block any URL change that contains panorama params
+        history.pushState = function (...args) {
+            const url = args[2]; // the URL being pushed
+            if (url && (url.includes('pic=') || url.includes('speed=') || url.includes('xyz='))) {
+                return; // silently block
+            }
+            return originalPushState.apply(history, args);
+        };
 
         const { Viewer } = mapillary;
         const { Photo } = StreetViewVN_Viewer;
@@ -118,6 +144,31 @@
         var map = L.map('map', {
             "worldCopyJump": true
         }).setView([0, 0], 1);
+
+        document.getElementById("mapComponent").onmouseenter = () => {
+            if (mapLocked) {
+                document.documentElement.style.setProperty("--mapWidth", "100vw");
+                document.documentElement.style.setProperty("--mapHeight", "100vh");
+            }
+            else {
+                document.documentElement.style.setProperty("--mapWidth", "50vw");
+                document.documentElement.style.setProperty("--mapHeight", "60vh");
+            }
+            document.documentElement.style.setProperty("--mapOpacity", "1");
+
+        }
+        document.getElementById("mapComponent").onmouseleave = () => {
+            if (mapLocked) return;
+            document.documentElement.style.setProperty("--mapWidth", "35vw");
+            document.documentElement.style.setProperty("--mapHeight", "40vh");
+            document.documentElement.style.setProperty("--mapOpacity", ".4");
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            map.invalidateSize();
+        });
+
+        resizeObserver.observe(document.getElementById("mapComponent"));
 
         var currentImg = Math.floor(Math.random() * 10016);
         var destIcon = L.icon({
@@ -156,6 +207,15 @@
         let timeLeft = totalTime;
         let timerAlarmThreshold = 15;
         var timerStarted = false;
+
+        const panoramaxInstances = [
+            "https://panoramax.liswu.me/api",
+            "https://api.panoramax.xyz/api",
+            "https://panoramax.openstreetmap.fr/api",
+            "https://panoramax.multimob.be/api",
+            "https://panoramax.mapcomplete.org/api",
+            "https://panoramax.ign.fr/api"
+        ]
 
 
         UpdateHorizontalCompass(0);
@@ -246,6 +306,8 @@
         var panoramaUsing = -1;
 
         async function InitPanorama() {
+            document.querySelector("pnx-photo-viewer").style.zIndex = "-1"
+            document.getElementById("panorama").style.zIndex = "0"
             var isValid = true;
 
 
@@ -280,8 +342,9 @@
 
 
             var randomPercentage = RandomRange(1, 100)
-            // 1-84 85% Mapillary
-            // 85-92 7% OpenMap.vn
+            // 1-35 35% Mapillary
+            // 36-85 50% Panoramax
+            // 86-92 7% OpenMap.vn
             // 93-100 8% Mapy
 
             if (randomPercentage >= 92) {
@@ -313,7 +376,7 @@
                     return;
                 }
             }
-            else if (randomPercentage >= 85) {
+            else if (randomPercentage >= 86) {
                 panoramaUsing = 2
                 const container = document.querySelector("#panorama");
                 openMapViewer = new Photo({
@@ -394,6 +457,97 @@
                     UpdateHorizontalCompass(openMapViewer.getPosition().yaw * (180 / Math.PI));
                 })
             }
+            else if (randomPercentage >= 36) {
+
+                panoramaUsing = 3
+                var done = false
+                var instance;
+                var sequenceId;
+
+                while (!done) {
+                    instance = panoramaxInstances[RandomRange(0, panoramaxInstances.length - 1)];
+
+                    let attempts = 0;
+                    const mainApiData = await (await fetch(instance + "/users")).json();
+                    let userLink = "";
+                    while (!userLink.includes("/api/users/") && attempts < 5) {
+                        userLink = mainApiData.links[RandomRange(2, mainApiData.links.length - 1)].href;
+                        attempts++;
+                    }
+                    if (attempts == 5) {
+                        continue;
+                    }
+
+                    attempts = 0;
+                    const userData = await (await fetch(userLink)).json();
+                    let sequence = "";
+                    if (!userData?.links) {
+                        continue;
+                    }
+                    while (!sequence.includes("/api/collections/") && attempts < 5) {
+                        sequence = userData.links[RandomRange(0, userData.links.length - 1)].href;
+                        attempts++;
+                    }
+                    if (attempts == 5) {
+                        continue;
+                    }
+
+                    const sequenceData = await (await fetch(sequence)).json();
+
+
+                    if (sequenceData.summaries == null || sequenceData.summaries["pers:interior_orientation"] == null) {
+                        var itemsData = await (await fetch(sequence + "/items?limit=10")).json();
+
+                        if (itemsData.features[RandomRange(0, itemsData.features.length - 1)].properties["pers:interior_orientation"].field_of_view != "360" ||
+                            (itemsData.features.length == 1 && moving)) {
+                            continue;
+                        }
+                    }
+                    else if (sequenceData.summaries["pers:interior_orientation"][0].field_of_view != "360") {
+                        continue;
+                    }
+
+                    attempts = 0;
+                    const collectionData = await (await fetch(sequence + "/items")).json();
+                    if (collectionData.features.length == 1 && moving) continue;
+
+                    var obj = collectionData.features[RandomRange(0, collectionData.features.length - 1)];
+
+                    var searchData = await (await fetch(instance + "/search?ids=" + obj.id)).json()
+                    if (searchData.features.length == 0)
+                        continue
+
+                    currentImg = obj.id;
+                    sequenceId = obj.collection;
+                    destination = [obj.geometry.coordinates[1], obj.geometry.coordinates[0]]
+                    done = true
+                }
+
+
+                document.querySelector("pnx-photo-viewer").style.zIndex = "0"
+                document.getElementById("panorama").style.zIndex = "-1"
+                document.querySelector("pnx-photo-viewer").addEventListener("psv:picture-loaded", () => {
+                    document.querySelector(".loading-indicator").style.display = 'none';
+                    if (!mapLocked && !timerStarted)
+                        StartTimer(() => { Guess(true) });
+                })
+
+                document.querySelector("pnx-photo-viewer").addEventListener("psv:position-updated", (e) => {
+                    UpdateHorizontalCompass(e.position.yaw * (180 / Math.PI));
+                })
+
+                document.querySelector("pnx-photo-viewer").addEventListener("api:broken", () => { InitPanorama() })
+
+                document.querySelector("pnx-photo-viewer").select();
+
+                document.querySelector("pnx-photo-viewer").setAttribute("endpoint", instance);
+
+                setTimeout(() => {
+                    document.querySelector("pnx-photo-viewer").setAttribute("picture", currentImg);
+                    document.querySelector("pnx-photo-viewer").setAttribute("sequence", sequenceId);
+                }, 1000)
+                usedCoords.push(destination)
+            }
             else {
                 panoramaUsing = 0
                 var startDate = randomDate(new Date(2013, 8, 1), new Date(2016, 11, 31)).toISOString();
@@ -461,7 +615,6 @@
             });
             viewer.on("load", () => {
                 document.querySelector(".loading-indicator").style.display = 'none';
-                document.querySelector(".mapillary-direction-perspective").style.display = moving ? "block" : "none"
                 if (!mapLocked)
                     StartTimer(() => { Guess(true) });
             })
@@ -620,7 +773,6 @@
             document.documentElement.style.setProperty("--mapHeight", "100vh");
             document.documentElement.style.setProperty("--mapGap", "100px");
             SetGuessBtnActivation(marker != null && marker.options.opacity == 1.0)
-            map.invalidateSize()
             console.log(chosenCoord)
             distanceBetween = GetDistanceFromLatLonInKm(destination[0], destination[1],
                 chosenCoord.lat, chosenCoord.lng);
@@ -683,7 +835,6 @@
             document.documentElement.style.setProperty("--mapGap", "50px");
             document.querySelector(".horizontal-compass").style.display = 'block';
             document.getElementById("scoreBar").style.display = "none";
-            map.invalidateSize()
             map.setView([0, 0], 1);
             if (!timerStarted)
                 StartTimer(() => { Guess(true) });

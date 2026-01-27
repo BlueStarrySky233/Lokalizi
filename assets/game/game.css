@@ -1,6 +1,9 @@
 #panorama {
     width: 100vw;
     height: 100vh;
+    top: 0;
+    left: 0;
+    position: absolute;
 }
 
 body {
@@ -13,8 +16,18 @@ body {
 :root {
     --mapHeight: 40vh;
     --mapWidth: 35vw;
+    --mapOpacity: .4;
     --mapGap: 50px;
     --progress: 360;
+    --moving: block;
+}
+
+.pnx-psv-tour-arrows {
+    display: var(--moving);
+}
+
+.mapillary-direction-perspective {
+    display: var(--moving);
 }
 
 #map {
@@ -30,7 +43,18 @@ body {
     position: absolute;
     top: calc(100vh - var(--mapHeight));
     right: 0;
+    opacity: var(--mapOpacity);
+    transition: .2s ease-in-out;
 }
+
+#mapComponent > * {
+    transition: .2s ease-in-out;
+}
+
+#mapComponent > * > * {
+    transition: none;
+}
+
 
 #guessBtn {
     width: calc(var(--mapWidth) - 10px);
