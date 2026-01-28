@@ -23,8 +23,17 @@
     </h1>
 
     <div id="btnGroup">
-        <button id="playBtn" onclick="GoSingleplayer(1)">Singleplayer Moving</button>
-        <button id="playBtn" onclick="GoSingleplayer(0)">Singleplayer No Moving</button>
+        <div class="groupItem" id="satellite-tab">
+            <div id="satellite-scene"></div>
+            <h1>Satellite</h1>
+            <button id="playBtn" onclick="GoSatelliteSingleplayer()">Singleplayer</button>
+        </div>
+        <div class="groupItem" id="camera-tab">
+            <div id="camera-scene"></div>
+            <h1>Panorama</h1>
+            <button id="playBtn" onclick="GoSingleplayer(1)">Singleplayer Moving</button>
+            <button id="playBtn" onclick="GoSingleplayer(0)">Singleplayer No Moving</button>
+        </div>
     </div>
 
 
@@ -64,6 +73,12 @@
                     <li>Added Panoramax Integration</li>
                     <li>Added a Map hover animation</li>
                 </ul>
+                <br>
+                <h2>v0.3</h2>
+                <ul>
+                    <li>Added a Satellite Challange mode</li>
+                    <li>Refurbished the main page</li>
+                </ul>
             </div>
         </div>
     </div>
@@ -81,6 +96,10 @@
     <script>
         function GoSingleplayer(moving) {
             window.location = `./game.html?moving=${moving}`
+        }
+        
+        function GoSatelliteSingleplayer() {
+            window.location = `./satellite.html`
         }
 
         function SwitchChangelog(active) {
@@ -141,6 +160,48 @@
         pin.rotation.set(Math.PI / 18, 0, -Math.PI / 6)
         scene.add(pin);
 
+
+        const satelliteScene = new THREE.Scene();
+        const satelliteRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        satelliteRenderer.setSize(325, 325);
+        satelliteRenderer.setPixelRatio(1);
+        document.getElementById("satellite-scene").appendChild(satelliteRenderer.domElement);
+
+        const satelliteCam = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+        satelliteCam.position.set(0, 0, 0);
+
+        satelliteScene.add(new THREE.AmbientLight(0xffffff, 1));
+
+        const satelliteGLTF = await loader.loadAsync("assets/homepage/satellite.glb")
+        const satellite = satelliteGLTF.scene;
+
+        satellite.position.set(0, 0, -.5);
+        satellite.scale.set(.008, .008, .008)
+        satellite.rotation.set(15, 180, 0)
+        satelliteScene.add(satellite);
+
+
+        const camScene = new THREE.Scene();
+        const camRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        camRenderer.setSize(325, 325);
+        camRenderer.setPixelRatio(1);
+        document.getElementById("camera-scene").appendChild(camRenderer.domElement);
+
+        const camCam = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+        camCam.position.set(0, 0, 0);
+
+        camScene.add(new THREE.AmbientLight(0xffffff, 1));
+
+        const camGLTF = await loader.loadAsync("assets/homepage/camera.glb")
+        const cam = camGLTF.scene;
+
+        cam.position.set(-2, 0, -10);
+        camScene.add(cam);
+
+
+        var satelliteAnimate = false;
+        var cameraAnimate = false;
+
         // ─── Animation Loop ─────────────────────────────────────
         function animate() {
             requestAnimationFrame(animate);
@@ -152,7 +213,19 @@
             pin.position.x = .7 + Math.sin(Date.now() * 0.0009) * 0.02;
             pin.position.y = .9 + Math.sin(Date.now() * 0.0009) * 0.02;
 
+            if (satelliteAnimate) {
+                satellite.rotation.y += 0.01
+                satellite.rotation.x += 0.001
+            }
+
+            if (cameraAnimate) {
+                cam.rotation.y += 0.01
+                cam.position.x = -2 * Math.cos(cam.rotation.y)
+            }
+
             renderer.render(scene, camera);
+            satelliteRenderer.render(satelliteScene, satelliteCam)
+            camRenderer.render(camScene, camCam)
         }
         animate();
 
@@ -166,6 +239,22 @@
             //0.000763359x+0.236641
             camera.position.set(0.000763359 * window.innerWidth + 0.4, .7, 2)
         });
+
+        document.getElementById("satellite-tab").onmouseover = () => {
+            satelliteAnimate = true
+        }
+
+        document.getElementById("satellite-tab").onmouseout = () => {
+            satelliteAnimate = false
+        }
+
+        document.getElementById("camera-tab").onmouseover = () => {
+            cameraAnimate = true
+        }
+
+        document.getElementById("camera-tab").onmouseout = () => {
+            cameraAnimate = false
+        }
 
     </script>
 </body>

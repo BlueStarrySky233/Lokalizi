@@ -1,0 +1,362 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satellite Challange Singleplayer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="./assets/game/game.css">
+    <link rel="icon" href="./assets/icon.png">
+    <style>
+        #satelliteMap {
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="satelliteMap"></div>
+
+
+    <div id="mapComponent" style="z-index: 999;">
+        <div id="map"></div>
+        <button id="guessBtn" onclick="Guess()">Guess</button>
+        <div id="scoreBar" style="display: none;justify-content: space-around;">
+            <div style="display: flex; flex-direction: column;height: 100px;">
+                <h1 style="margin: 0;font-size: 50px;color: yellow;transform: translateY(10px);text-align: center;width: 300px;"
+                    id="score-label"></h1>
+                <p style="transform: translateY(-10px);width: 300px;text-align: center;color: gray;">Out of 5000</p>
+            </div>
+            <button
+                style="width: 100px;height: 40px;margin: 5px;border-radius: 20px;border: none;background-color: #22a118;color: white;font-weight: bold;"
+                onclick="NextRound()">Next</button>
+            <div style="display: flex; flex-direction: column;height: 100px;justify-content: center;">
+                <h1 style="margin: 0;font-size: 50px;color: greenyellow;text-align: center;width: 300px;justify-content: center;"
+                    id="distance-label"></h1>
+            </div>
+        </div>
+    </div>
+
+    <div id="logo">
+        <img src="./assets/icon_big.png">
+    </div>
+
+    <div class="loading-indicator">
+        <span class="loader-circle"></span>
+        <span class="loader"></span>
+        <div class="tips">
+            <h1 class="tips-title">Loading</h1>
+        </div>
+    </div>
+
+    <div id="timerContainer">
+        <div id="timerCover"></div>
+        <div
+            style="width: 100%; height: 100%; background: conic-gradient(#f87171 calc(var(--progress) * 1deg), black calc(var(--progress) * 1deg) 360deg); position: absolute; border-radius: 25px;">
+        </div>
+        <div id="timerDisplay" style="z-index: 10;">01:30</div>
+    </div>
+    <script>
+
+        var map = L.map('map', {
+            "worldCopyJump": true
+        }).setView([0, 0], 1);
+
+        document.getElementById("mapComponent").onmouseenter = () => {
+            if (mapLocked) {
+                document.documentElement.style.setProperty("--mapWidth", "100vw");
+                document.documentElement.style.setProperty("--mapHeight", "100vh");
+            }
+            else {
+                document.documentElement.style.setProperty("--mapWidth", "50vw");
+                document.documentElement.style.setProperty("--mapHeight", "60vh");
+            }
+            document.documentElement.style.setProperty("--mapOpacity", "1");
+
+        }
+        document.getElementById("mapComponent").onmouseleave = () => {
+            if (mapLocked) return;
+            document.documentElement.style.setProperty("--mapWidth", "35vw");
+            document.documentElement.style.setProperty("--mapHeight", "40vh");
+            document.documentElement.style.setProperty("--mapOpacity", ".4");
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            map.invalidateSize();
+        });
+
+        resizeObserver.observe(document.getElementById("mapComponent"));
+
+        function onMapClick(e) {
+            if (mapLocked) return;
+            if (marker != null)
+                marker.remove();
+            marker = L.marker(e.latlng).addTo(map);
+            marker.setOpacity(1)
+            SetGuessBtnActivation(marker != null && marker.options.opacity == 1.0)
+        }
+        map.on('click', onMapClick);
+
+        L.tileLayer('https://tile.tracestrack.com/auto/{z}/{x}/{y}.webp?key=d2005e4e94ea8953507355ae4c83ba1c', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.tracestrack.com/">Tracestrack</a>'
+        }).addTo(map);
+
+        var destMarker;
+        var originMarker;
+        var marker;
+        var destination = [0, 0];
+        var chosenToDestPath;
+        var mapLocked = false;
+        var distanceBetween = 0;
+        const delta = 5;
+        var destIcon = L.icon({
+            iconUrl: './assets/game/icon_dest.png',
+            iconSize: L.Icon.Default.prototype.options.iconSize,
+            iconAnchor: L.Icon.Default.prototype.options.iconAnchor,
+            shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png"
+        });
+
+        async function GetRandomCoordOnLand() {
+            let coord = [];
+            let attempts = 0;
+            const maxAttempts = 10; // prevent infinite loop
+
+            while (attempts < maxAttempts) {
+                await fetch(`https://zaofanyouli.tach.eu.org/?yes`)
+                    .then(async res => {
+                        var json = await res.json();
+                        coord = [json.nearest.latt, json.nearest.longt];
+                    });
+
+                // Exclude Antarctica: reject if latitude < -60
+                if (coord[0] >= -60) {
+                    return coord; // good point — keep it
+                }
+
+                attempts++;
+                console.log(`Excluded Antarctic point: ${coord[0]}, ${coord[1]}`);
+            }
+
+            // Fallback if too many failures (very rare)
+            console.warn("Could not find non-Antarctic land point after retries");
+            return [0, 0]; // or throw error
+        }
+
+
+        var satelliteMap = L.map('satelliteMap', {
+            "worldCopyJump": true
+        })
+
+        const satellite = L.tileLayer(
+            `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
+            {
+                attribution: '(C) Esri ArcGis',
+                maxZoom: 14,
+                minZoom: 9,
+                maxBoundsViscosity: 1,
+                bounceAtZoomLimits: true
+            }
+        );
+        satellite.addTo(satelliteMap);
+
+
+        function SetGuessBtnActivation(active) {
+            document.getElementById("guessBtn").textContent = active ? "Guess" : "Place a Pin on the map"
+
+            if (active)
+                document.getElementById("guessBtn").removeAttribute("disabled")
+            else
+                document.getElementById("guessBtn").setAttribute("disabled", "")
+
+        }
+
+        var progressThread;
+        var countdownThread;
+        const timerDisplay = document.getElementById("timerDisplay");
+
+        var totalTime = 90;
+        let timeLeft = totalTime;
+        let timerAlarmThreshold = 15;
+        var timerStarted = false;
+
+        function StartTimer(callback) {
+            ResetTimer();
+            const minutes = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+            const seconds = String(timeLeft % 60).padStart(2, "0");
+            timerDisplay.textContent = `${minutes}:${seconds}`;
+            timerStarted = true;
+            progressThread = setInterval(() => {
+                if (currentProgress <= 0) {
+                    callback();
+                    ResetTimer();
+                    clearInterval(progressThread);
+                }
+                currentProgress -= 1;
+                document.documentElement.style.setProperty(
+                    "--progress",
+                    currentProgress
+                );
+            }, 1000 / (360 / totalTime));
+
+            countdownThread = setInterval(() => {
+                timeLeft--;
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownThread);
+                    timerDisplay.textContent = "00:00";
+                    return;
+                }
+
+                if (timeLeft <= 15) {
+                    timerDisplay.style.color = "red"
+                }
+
+                currentProgress = 360 * timeLeft / totalTime
+                document.documentElement.style.setProperty(
+                    "--progress",
+                    currentProgress
+                );
+
+                const minutes = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+                const seconds = String(timeLeft % 60).padStart(2, "0");
+                timerDisplay.textContent = `${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        function ResetTimer() {
+            currentProgress = 360;
+            timeLeft = totalTime;
+            clearInterval(countdownThread);
+            clearInterval(progressThread);
+            timerStarted = false;
+            timerDisplay.style.color = "white"
+        }
+
+        function Guess(ignorePrerequisites = false) {
+            if (!ignorePrerequisites && (marker == null || marker.options.opacity != 1.0)) return;
+            var chosenCoord = marker.getLatLng()
+            marker.setOpacity(1);
+
+            destMarker = L.marker(destination, { icon: destIcon }).addTo(map);
+            chosenToDestPath = L.polyline([destMarker.getLatLng(), chosenCoord],
+                {
+                    color: '#333',
+                    weight: 1,
+                    opacity: 0.6,
+                }).addTo(map);
+
+            mapLocked = true;
+            document.documentElement.style.setProperty("--mapWidth", "100vw");
+            document.documentElement.style.setProperty("--mapHeight", "100vh");
+            document.documentElement.style.setProperty("--mapGap", "100px");
+            SetGuessBtnActivation(marker != null && marker.options.opacity == 1.0)
+            console.log(chosenCoord)
+            distanceBetween = GetDistanceFromLatLonInKm(destination[0], destination[1],
+                chosenCoord.lat, chosenCoord.lng);
+
+            map.fitBounds(
+                L.latLngBounds(chosenCoord, destination),
+                {
+                    padding: [100, 100],  // Extra space around points (top/bottom/left/right in pixels)
+                    maxZoom: 18,          // Prevent zooming too close (street level)
+                    animate: true,        // Smooth zoom animation
+                    duration: 1         // Animation time in seconds
+                }
+            );
+
+            var score = CalculateRoundScore(distanceBetween);
+
+            console.log(`${distanceBetween.toFixed(2).toString()}km, with score ${score}`)
+
+            document.getElementById("guessBtn").style.display = 'none';
+            document.getElementById("mapComponent").style.zIndex = 99999;
+            document.querySelector(".loading-indicator").style.display = 'flex';
+            document.getElementById("scoreBar").style.display = "flex";
+
+            document.getElementById("score-label").textContent = score
+            document.getElementById("distance-label").textContent = `${distanceBetween.toFixed(0).toString()}km`;
+
+            ResetTimer();
+
+            SetPosition();
+
+        }
+
+        function NextRound() {
+
+            chosenToDestPath.remove();
+            destMarker.remove();
+            marker.remove();
+            marker = L.marker([0, 0]).addTo(map);
+            marker.setOpacity(0);
+            document.getElementById("guessBtn").style.display = 'block';
+            document.getElementById("mapComponent").style.zIndex = 999;
+            mapLocked = false;
+            document.documentElement.style.setProperty("--mapWidth", "35vw");
+            document.documentElement.style.setProperty("--mapHeight", "40vh");
+            document.documentElement.style.setProperty("--mapGap", "50px");
+            document.getElementById("scoreBar").style.display = "none";
+            map.setView([0, 0], 1);
+            if (!timerStarted)
+                StartTimer(() => { Guess(true) });
+        }
+
+        function GetDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+            var R = 6371; // Radius of the earth in km
+            var dLat = deg2rad(lat2 - lat1);  // deg2rad below
+            var dLon = deg2rad(lon2 - lon1);
+            var a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                ;
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            var d = R * c; // Distance in km
+            return d;
+        }
+
+        function deg2rad(deg) {
+            return deg * (Math.PI / 180)
+        }
+
+        function CalculateRoundScore(distance, scoreFactor = 20000) {
+            if (distance * 1000 < 25) return 5000;
+
+            const score = 5000 * Math.pow(Math.E, (-10 * distance / scoreFactor))
+
+            if (score < 0) return 0;
+
+            return Math.round(score);
+        }
+
+        async function SetPosition() {
+            destination = await GetRandomCoordOnLand();
+            destination = [parseFloat(destination[0]), parseFloat(destination[1])]
+            document.querySelector(".loading-indicator").style.display = 'none';
+            satelliteMap.setView(destination, 9)
+            originMarker = L.marker(destination, { icon: destIcon }).addTo(satelliteMap);
+
+            satelliteMap.setMaxBounds([
+                [destination[0] - delta, destination[1] - delta],
+                [destination[0] + delta, destination[1] + delta]
+            ])
+
+            if (!mapLocked)
+                StartTimer(() => { Guess() });
+        }
+
+
+
+        SetPosition()
+
+
+
+    </script>
+</body>
+
+</html>
